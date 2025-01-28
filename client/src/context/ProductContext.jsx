@@ -1,203 +1,142 @@
-import React, { createContext, useReducer, useContext, useEffect } from 'react';
+import React, { createContext, useReducer, useContext, useEffect } from "react";
+import axios from "axios";
 
-// Initial state with local storage
-const getInitialState = () => {
-    const storedProducts = localStorage.getItem('products');
-    const storedSales = localStorage.getItem('sales');
-
-    return {
-        products: storedProducts ? JSON.parse(storedProducts) : [],
-        sales: storedSales ? JSON.parse(storedSales) : []
-    };
-};
-
-// Create context
 const ProductContext = createContext();
 
+const initialState = {
+  products: [],
+  loading: false,
+  error: null,
+};
+
 // Action Types
-const ADD_PRODUCT = 'ADD_PRODUCT';
-const UPDATE_PRODUCT = 'UPDATE_PRODUCT';
-const DELETE_PRODUCT = 'DELETE_PRODUCT';
-const ADJUST_INVENTORY = 'ADJUST_INVENTORY';
-const CREATE_SALE = 'CREATE_SALE';
-const SET_PRODUCTS = 'SET_PRODUCTS';
+const SET_LOADING = "SET_LOADING";
+const SET_ERROR = "SET_ERROR";
+const SET_PRODUCTS = "SET_PRODUCTS";
+const ADD_PRODUCT = "ADD_PRODUCT";
+const UPDATE_PRODUCT = "UPDATE_PRODUCT";
+const DELETE_PRODUCT = "DELETE_PRODUCT";
 
-// Reducer Function
 const productReducer = (state, action) => {
-    let newState;
-
-    switch (action.type) {
-        case ADD_PRODUCT:
-            newState = {
-                ...state,
-                products: [...state.products, {
-                    ...action.payload,
-                    id: Date.now().toString(),
-                    price: Number(action.payload.price),
-                    quantity: Number(action.payload.quantity)
-                }]
-            };
-            localStorage.setItem('products', JSON.stringify(newState.products));
-            return newState;
-
-        case UPDATE_PRODUCT:
-            newState = {
-                ...state,
-                products: state.products.map(product =>
-                    product.id === action.payload.id
-                        ? {
-                            ...product,
-                            ...action.payload,
-                            price: Number(action.payload.price),
-                            quantity: Number(action.payload.quantity)
-                        }
-                        : product
-                )
-            };
-            localStorage.setItem('products', JSON.stringify(newState.products));
-            return newState;
-
-        case DELETE_PRODUCT:
-            newState = {
-                ...state,
-                products: state.products.filter(product => product.id !== action.payload)
-            };
-            localStorage.setItem('products', JSON.stringify(newState.products));
-            return newState;
-
-        case ADJUST_INVENTORY:
-            newState = {
-                ...state,
-                products: state.products.map(product => {
-                    if (product.id === action.payload.productId) {
-                        const currentQuantity = Number(product.quantity);
-                        const adjustmentQuantity = Number(action.payload.quantity);
-
-                        const newQuantity = action.payload.type === 'add'
-                            ? currentQuantity + adjustmentQuantity
-                            : currentQuantity - adjustmentQuantity;
-
-                        return {
-                            ...product,
-                            quantity: Math.max(0, newQuantity)
-                        };
-                    }
-                    return product;
-                })
-            };
-            localStorage.setItem('products', JSON.stringify(newState.products));
-            return newState;
-
-        case CREATE_SALE:
-            newState = {
-                ...state,
-                sales: [...state.sales, {
-                    id: Date.now().toString(),
-                    ...action.payload,
-                    date: new Date().toISOString()
-                }]
-            };
-            localStorage.setItem('sales', JSON.stringify(newState.sales));
-            return newState;
-
-        case SET_PRODUCTS:
-            newState = {
-                ...state,
-                products: action.payload
-            };
-            localStorage.setItem('products', JSON.stringify(newState.products));
-            return newState;
-
-        default:
-            return state;
-    }
+  switch (action.type) {
+    case SET_LOADING:
+      return { ...state, loading: action.payload };
+    case SET_ERROR:
+      return { ...state, error: action.payload };
+    case SET_PRODUCTS:
+      return { ...state, products: action.payload };
+    case ADD_PRODUCT:
+      return { ...state, products: [...state.products, action.payload] };
+    case UPDATE_PRODUCT:
+      return {
+        ...state,
+        products: state.products.map((product) =>
+          product._id === action.payload._id ? action.payload : product
+        ),
+      };
+    case DELETE_PRODUCT:
+      return {
+        ...state,
+        products: state.products.filter(
+          (product) => product._id !== action.payload
+        ),
+      };
+    default:
+      return state;
+  }
 };
 
-// Context Provider
 export const ProductProvider = ({ children }) => {
-    const [state, dispatch] = useReducer(productReducer, getInitialState());
+  const [state, dispatch] = useReducer(productReducer, initialState);
 
-    // Action Creators
-    const addProduct = (product) => {
-        dispatch({
-            type: ADD_PRODUCT,
-            payload: {
-                ...product,
-                price: Number(product.price),
-                quantity: Number(product.quantity)
-            }
-        });
-    };
+  const api = axios.create({
+    baseURL: "http://localhost:5000/api",
+    headers: {
+      Authorization: `Bearer ${localStorage.getItem("token")}`,
+    },
+  });
 
-    const updateProduct = (product) => {
-        dispatch({
-            type: UPDATE_PRODUCT,
-            payload: {
-                ...product,
-                price: Number(product.price),
-                quantity: Number(product.quantity)
-            }
-        });
-    };
+  useEffect(() => {
+    fetchProducts();
+  }, []);
 
-    const deleteProduct = (productId) => {
-        dispatch({ type: DELETE_PRODUCT, payload: productId });
-    };
+  const fetchProducts = async () => {
+    dispatch({ type: SET_LOADING, payload: true });
+    try {
+      const response = await api.get("/products");
+      dispatch({ type: SET_PRODUCTS, payload: response.data.products });
+    } catch (error) {
+      dispatch({ type: SET_ERROR, payload: error.message });
+    } finally {
+      dispatch({ type: SET_LOADING, payload: false });
+    }
+  };
 
-    const adjustInventory = (productId, quantity, type = 'add') => {
-        dispatch({
-            type: ADJUST_INVENTORY,
-            payload: {
-                productId,
-                quantity: Number(quantity),
-                type
-            }
-        });
-    };
+  const addProduct = async (productData) => {
+    dispatch({ type: SET_LOADING, payload: true });
+    try {
+      const response = await api.post("/products", productData);
+      dispatch({ type: ADD_PRODUCT, payload: response.data.product });
+      return response.data.product;
+    } catch (error) {
+      dispatch({ type: SET_ERROR, payload: error.message });
+      throw error;
+    } finally {
+      dispatch({ type: SET_LOADING, payload: false });
+    }
+  };
 
-    const createSale = (saleData) => {
-        const processedSale = {
-            ...saleData,
-            total: saleData.items.reduce((total, item) =>
-                total + (Number(item.price) * Number(item.quantity)), 0)
-        };
+  const updateProduct = async (productData) => {
+    dispatch({ type: SET_LOADING, payload: true });
+    try {
+      const response = await api.put(
+        `/products/${productData._id}`,
+        productData
+      );
+      dispatch({ type: UPDATE_PRODUCT, payload: response.data.product });
+      return response.data.product;
+    } catch (error) {
+      dispatch({ type: SET_ERROR, payload: error.message });
+      throw error;
+    } finally {
+      dispatch({ type: SET_LOADING, payload: false });
+    }
+  };
 
-        // Update product quantities
-        saleData.items.forEach(item => {
-            adjustInventory(item.productId, item.quantity, 'remove');
-        });
+  const deleteProduct = async (productId) => {
+    dispatch({ type: SET_LOADING, payload: true });
+    try {
+      await api.delete(`/products/${productId}`);
+      dispatch({ type: DELETE_PRODUCT, payload: productId });
+    } catch (error) {
+      dispatch({ type: SET_ERROR, payload: error.message });
+      throw error;
+    } finally {
+      dispatch({ type: SET_LOADING, payload: false });
+    }
+  };
 
-        dispatch({
-            type: CREATE_SALE,
-            payload: processedSale
-        });
-    };
-
-    const setProducts = (products) => {
-        dispatch({ type: SET_PRODUCTS, payload: products });
-    };
-
-    return (
-        <ProductContext.Provider value={{
-            products: state.products,
-            sales: state.sales,
-            addProduct,
-            updateProduct,
-            deleteProduct,
-            adjustInventory,
-            createSale,
-            setProducts
-        }}>
-            {children}
-        </ProductContext.Provider>
-    );
+  return (
+    <ProductContext.Provider
+      value={{
+        products: state.products,
+        loading: state.loading,
+        error: state.error,
+        addProduct,
+        updateProduct,
+        deleteProduct,
+        fetchProducts,
+      }}
+    >
+      {children}
+    </ProductContext.Provider>
+  );
 };
 
-// Custom hook
 export const useProducts = () => {
-    const context = useContext(ProductContext);
-    if (!context) {
-        throw new Error('useProducts must be used within a ProductProvider');
-    }
-    return context;
+  const context = useContext(ProductContext);
+  if (!context) {
+    throw new Error("useProducts must be used within a ProductProvider");
+  }
+  return context;
 };
